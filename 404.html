@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Stadtvilla Blumenhof – Vorschau</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 24px 16px; background: #eef4f4; color: #23343b;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    .karte {
+      width: 100%; max-width: 420px; background: #fff; border-radius: 18px; padding: 32px 28px;
+      box-shadow: 0 2px 6px rgba(35,52,59,.06), 0 16px 40px rgba(35,52,59,.1);
+    }
+    h1 { font-family: Georgia, serif; font-style: italic; font-weight: normal; color: #12706c; margin: 0 0 6px; font-size: 1.9rem; }
+    p { margin: 0 0 20px; color: #5f7277; line-height: 1.5; }
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input {
+      width: 100%; font: inherit; font-size: 1.05rem; padding: 12px 14px;
+      border: 1px solid #cfd9da; border-radius: 10px;
+    }
+    input:focus { outline: 2px solid #1a8f8a; border-color: #1a8f8a; }
+    .feld { position: relative; }
+    .feld input { padding-right: 104px; }
+    .zeigen {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: auto; margin: 0; padding: 7px 10px; border-radius: 7px;
+      background: #e9f5f4; color: #12706c; font-size: .9rem; font-weight: 600;
+    }
+    .zeigen:hover { background: #d6eeec; }
+    button {
+      width: 100%; margin-top: 14px; font: inherit; font-weight: 700; font-size: 1.05rem;
+      padding: 12px; border: 0; border-radius: 10px; background: #1a8f8a; color: #fff; cursor: pointer;
+    }
+    button:disabled { opacity: .6; cursor: wait; }
+    .meldung { min-height: 1.4em; margin: 12px 0 0; font-size: .95rem; }
+    .fehler { color: #b3261e; }
+    .klein { font-size: .85rem; margin: 20px 0 0; }
+  </style>
+</head>
+<body>
+  <main class="karte">
+    <h1>Stadtvilla Blumenhof</h1>
+    <p>Vorschau der neuen Webseite für die Eigentümer. Die Seite ist verschlüsselt – bitte geben Sie das Passwort ein.</p>
+    <form id="form">
+      <label for="pw">Passwort</label>
+      <div class="feld">
+        <input id="pw" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+        <button id="zeigen" class="zeigen" type="button" aria-pressed="false" aria-controls="pw">👁 Zeigen</button>
+      </div>
+      <button id="los" type="submit">Vorschau öffnen</button>
+      <div id="meldung" class="meldung" role="status"></div>
+    </form>
+    <p class="klein">Nur zur internen Abstimmung. Bitte Link und Passwort nicht weitergeben.</p>
+  </main>
+
+  <script>
+    const DB = 'stadtvilla-vorschau', STORE = 'schluessel';
+    const meldung = document.getElementById('meldung');
+    const knopf = document.getElementById('los');
+    const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+
+    // Passwort sichtbar machen / wieder verbergen
+    const feld = document.getElementById('pw');
+    const zeigenKnopf = document.getElementById('zeigen');
+    zeigenKnopf.addEventListener('click', () => {
+      const sichtbar = feld.type === 'password';
+      feld.type = sichtbar ? 'text' : 'password';
+      zeigenKnopf.textContent = sichtbar ? '🙈 Verbergen' : '👁 Zeigen';
+      zeigenKnopf.setAttribute('aria-pressed', sichtbar);
+      feld.focus();
+    });
+
+    function zeige(text, fehler) { meldung.textContent = text; meldung.className = 'meldung' + (fehler ? ' fehler' : ''); }
+
+    function speichere(key) {
+      return new Promise((ok, fehler) => {
+        const r = indexedDB.open(DB, 1);
+        r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+        r.onerror = () => fehler(r.error);
+        r.onsuccess = () => {
+          const t = r.result.transaction(STORE, 'readwrite');
+          t.objectStore(STORE).put(key, 'key');
+          t.oncomplete = ok; t.onerror = () => fehler(t.error);
+        };
+      });
+    }
+
+    if (location.protocol === 'file:') {
+      zeige('Diese verschlüsselte Vorschau funktioniert nur im Internet (z. B. über GitHub Pages), nicht per Doppelklick auf die Datei. ' +
+            'Zum Ansehen auf dem eigenen Rechner bitte die unverschlüsselte index.html im Ordner FeWo öffnen.', true);
+      knopf.disabled = true;
+    } else if (!('serviceWorker' in navigator) || !window.crypto || !crypto.subtle) {
+      zeige('Dieser Browser wird leider nicht unterstützt. Bitte einen aktuellen Browser (Chrome, Edge, Firefox, Safari) verwenden.', true);
+      knopf.disabled = true;
+    }
+
+    document.getElementById('form').addEventListener('submit', async e => {
+      e.preventDefault();
+      knopf.disabled = true;
+      zeige('Passwort wird geprüft …');
+      try {
+        const info = await (await fetch('schluessel.json', { cache: 'no-cache' })).json();
+        const roh = await crypto.subtle.importKey('raw', new TextEncoder().encode(document.getElementById('pw').value), 'PBKDF2', false, ['deriveKey']);
+        const key = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', hash: 'SHA-256', salt: b64(info.salt), iterations: info.iterationen },
+          roh, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+        const pruef = b64(info.pruefung);
+        try {
+          await crypto.subtle.decrypt({ name: 'AES-GCM', iv: pruef.slice(0, 12) }, key, pruef.slice(12));
+        } catch (_) {
+          zeige('Das Passwort ist leider falsch.', true);
+          knopf.disabled = false;
+          return;
+        }
+        zeige('Passwort richtig – Vorschau wird geladen …');
+        await speichere(key);
+        const reg = await navigator.serviceWorker.register('sw.js', { scope: './', updateViaCache: 'none' });
+        await reg.update().catch(() => {});
+        const neu = reg.installing || reg.waiting;      // neue Version des Service Workers abwarten
+        if (neu && neu.state !== 'activated') {
+          await new Promise(ok => neu.addEventListener('statechange', () => { if (neu.state === 'activated') ok(); }));
+        }
+        await navigator.serviceWorker.ready;
+        if (reg.active) reg.active.postMessage('neu-laden');
+        if (!navigator.serviceWorker.controller) {
+          await new Promise(ok => navigator.serviceWorker.addEventListener('controllerchange', ok, { once: true }));
+        }
+        location.reload();
+      } catch (err) {
+        zeige('Die Vorschau konnte nicht geladen werden: ' + err.message, true);
+        knopf.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
